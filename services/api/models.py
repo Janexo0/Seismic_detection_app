@@ -18,7 +18,7 @@ class Detection(Base):
     processing_time_ms = Column(Float, nullable=False)
     
     picks = Column(Text, nullable=True)  # JSON string
-    metadata = Column(Text, nullable=True)  # JSON string
+    model_metadata = Column(Text, nullable=True)  # JSON string 
     
     # Comparison fields
     agreement = Column(Boolean, nullable=True, index=True)

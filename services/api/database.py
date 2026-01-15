@@ -1,11 +1,10 @@
-import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://earthquake_user:earthquake_pass@localhost:5432/earthquake_db"
-)
+from config import Config
+
+# Use config instead of hardcoded values
+DATABASE_URL = Config.get_database_url()
 
 engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 

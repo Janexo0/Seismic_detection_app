@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional
 import uuid
@@ -11,7 +11,7 @@ class DetectionBase(BaseModel):
     threshold: float
     processing_time_ms: float
     picks: Optional[str] = None
-    metadata: Optional[str] = None
+    model_metadata: Optional[str] = Field(None, description="Model-specific metadata as JSON string")
 
 class DetectionCreate(DetectionBase):
     pass

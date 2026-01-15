@@ -18,21 +18,21 @@ services:
     networks:
       - earthquake-net
 
-  # PostgreSQL with TimescaleDB
-  timescaledb:
-    image: timescale/timescaledb:latest-pg15
-    container_name: earthquake-db
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: earthquake-postgres
     environment:
-      POSTGRES_DB: earthquake_db
-      POSTGRES_USER: earthquake_user
-      POSTGRES_PASSWORD: earthquake_pass
+      POSTGRES_DB: ${POSTGRES_DB:-seismic}
+      POSTGRES_USER: ${POSTGRES_USER:-seismic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U earthquake_user -d earthquake_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seismic} -d ${POSTGRES_DB:-seismic}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,16 +45,20 @@ services:
       context: ./services/ingestor
       dockerfile: Dockerfile
     container_name: earthquake-ingestor
+    env_file:
+      - .env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      FDSN_CLIENT: IRIS
-      NETWORK: IU
-      STATION: ANMO
-      LOCATION: "00"
-      CHANNEL: BHZ
-      WINDOW_DURATION: 60
-      OVERLAP: 10
+      REDIS_CHANNEL_OUTPUT: ${REDIS_CHANNEL_WAVEFORMS:-seismic:waveforms}
+      FDSN_CLIENT: ${FDSN_CLIENT:-IRIS}
+      NETWORK: ${NETWORK:-IU}
+      STATION: ${STATION:-ANMO}
+      LOCATION: ${LOCATION:-00}
+      CHANNEL: ${CHANNEL:-BHZ}
+      WINDOW_DURATION: ${WINDOW_DURATION:-60}
+      OVERLAP: ${OVERLAP:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       redis:
         condition: service_healthy
@@ -62,28 +66,38 @@ services:
     networks:
       - earthquake-net
 
-  # TensorFlow / SeisBench Model Service
+  # SeisBench Model Service
   model-seisbench:
     build:
       context: ./services/model-seisbench
       dockerfile: Dockerfile
     container_name: earthquake-model-seisbench
+    env_file:
+      - .env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_CHANNEL_INPUT: ${REDIS_CHANNEL_WAVEFORMS:-seismic:waveforms}
+      REDIS_CHANNEL_OUTPUT: ${REDIS_CHANNEL_DETECTIONS_SEISBENCH:-seismic:detections:seisbench}
       MODEL_NAME: seisbench_eqtransformer
-      DETECTION_THRESHOLD: 0.5
+      SEISBENCH_MODEL: ${SEISBENCH_MODEL:-EQTransformer}
+      SEISBENCH_MODEL_VERSION: ${SEISBENCH_MODEL_VERSION:-original}
+      DETECTION_THRESHOLD: ${SEISBENCH_DETECTION_THRESHOLD:-0.5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - seisbench_cache:/root/.cache/seisbench  
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Uncomment if you have GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     networks:
       - earthquake-net
 
@@ -93,61 +107,80 @@ services:
       context: ./services/model-pytorch
       dockerfile: Dockerfile
     container_name: earthquake-model-pytorch
+    env_file:
+      - .env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_CHANNEL_INPUT: ${REDIS_CHANNEL_WAVEFORMS:-seismic:waveforms}
+      REDIS_CHANNEL_OUTPUT: ${REDIS_CHANNEL_DETECTIONS_PYTORCH:-seismic:detections:pytorch}
       MODEL_NAME: pytorch_custom
-      MODEL_PATH: /models/custom_model.pt
-      DETECTION_THRESHOLD: 0.5
+      MODEL_PATH: ${MODEL_PATH:-/models/custom_model.pt}
+      DETECTION_THRESHOLD: ${PYTORCH_DETECTION_THRESHOLD:-0.5}
+      GPU_ENABLED: ${GPU_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./models:/models:ro
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Uncomment if you have GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     networks:
       - earthquake-net
 
-  # API Gateway Service
+  # API Service
   api:
     build:
       context: ./services/api
       dockerfile: Dockerfile
     container_name: earthquake-api
+    env_file:
+      - .env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      DATABASE_URL: postgresql://earthquake_user:earthquake_pass@timescaledb:5432/earthquake_db
-      CORS_ORIGINS: http://localhost:3000
+      REDIS_CHANNEL_WAVEFORMS: ${REDIS_CHANNEL_WAVEFORMS:-seismic:waveforms}
+      REDIS_CHANNEL_DETECTIONS_SEISBENCH: ${REDIS_CHANNEL_DETECTIONS_SEISBENCH:-seismic:detections:seisbench}
+      REDIS_CHANNEL_DETECTIONS_PYTORCH: ${REDIS_CHANNEL_DETECTIONS_PYTORCH:-seismic:detections:pytorch}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-seismic}
+      POSTGRES_USER: ${POSTGRES_USER:-seismic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
     depends_on:
       redis:
         condition: service_healthy
-      timescaledb:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - earthquake-net
 
-  # Frontend Service
+  # Frontend Service (React + Vite)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: earthquake-frontend
     environment:
-      REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_WS_URL: ws://localhost:8000
+      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
+      - "3000:80"
     depends_on:
       - api
     networks:
@@ -155,8 +188,12 @@ services:
 
 volumes:
   redis_data:
+    driver: local
   postgres_data:
-
+    driver: local
+  seisbench_cache:
+    driver: local
+    
 networks:
   earthquake-net:
     driver: bridge
