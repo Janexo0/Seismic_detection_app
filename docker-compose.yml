@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # Redis - Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: earthquake-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - earthquake-net
+
+  # PostgreSQL with TimescaleDB
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: earthquake-db
+    environment:
+      POSTGRES_DB: earthquake_db
+      POSTGRES_USER: earthquake_user
+      POSTGRES_PASSWORD: earthquake_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U earthquake_user -d earthquake_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - earthquake-net
+
+  # Ingestor Service
+  ingestor:
+    build:
+      context: ./services/ingestor
+      dockerfile: Dockerfile
+    container_name: earthquake-ingestor
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FDSN_CLIENT: IRIS
+      NETWORK: IU
+      STATION: ANMO
+      LOCATION: "00"
+      CHANNEL: BHZ
+      WINDOW_DURATION: 60
+      OVERLAP: 10
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - earthquake-net
+
+  # TensorFlow / SeisBench Model Service
+  model-seisbench:
+    build:
+      context: ./services/model-seisbench
+      dockerfile: Dockerfile
+    container_name: earthquake-model-seisbench
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MODEL_NAME: seisbench_eqtransformer
+      DETECTION_THRESHOLD: 0.5
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - earthquake-net
+
+  # PyTorch Custom Model Service
+  model-pytorch:
+    build:
+      context: ./services/model-pytorch
+      dockerfile: Dockerfile
+    container_name: earthquake-model-pytorch
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MODEL_NAME: pytorch_custom
+      MODEL_PATH: /models/custom_model.pt
+      DETECTION_THRESHOLD: 0.5
+    volumes:
+      - ./models:/models:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - earthquake-net
+
+  # API Gateway Service
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: earthquake-api
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_URL: postgresql://earthquake_user:earthquake_pass@timescaledb:5432/earthquake_db
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - earthquake-net
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: earthquake-frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_WS_URL: ws://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - earthquake-net
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  earthquake-net:
+    driver: bridge
