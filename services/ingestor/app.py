@@ -2,7 +2,7 @@ import json
 import time
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
@@ -81,7 +81,7 @@ class SeismicIngestor:
             # Prepare message according to schema
             message = {
                 "event_id": event_id,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "station": {
                     "network": trace.stats.network,
                     "station": trace.stats.station,
@@ -97,7 +97,7 @@ class SeismicIngestor:
                     "encoding": "float32",
                     "unit": "m/s"
                 },
-                "metadata": {
+                "detection_model_metadata": {
                     "latitude": getattr(trace.stats, 'latitude', None),
                     "longitude": getattr(trace.stats, 'longitude', None),
                     "elevation": getattr(trace.stats, 'elevation', None)

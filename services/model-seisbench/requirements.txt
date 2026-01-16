@@ -2,3 +2,4 @@ seisbench==0.4.1
 tensorflow==2.13.0
 redis==5.0.1
 numpy==1.24.3
+obspy==1.4.1

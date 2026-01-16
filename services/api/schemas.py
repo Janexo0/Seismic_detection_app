@@ -5,13 +5,13 @@ import uuid
 
 class DetectionBase(BaseModel):
     event_id: str
-    model_name: str
+    detection_model_name: str
     detected: bool
     confidence: float
     threshold: float
     processing_time_ms: float
     picks: Optional[str] = None
-    model_metadata: Optional[str] = Field(None, description="Model-specific metadata as JSON string")
+    detection_model_metadata: Optional[str] = Field(None, description="Model-specific metadata as JSON string")
 
 class DetectionCreate(DetectionBase):
     pass

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/detections", tags=["detections"])
 async def get_detections(
     skip: int = 0,
     limit: int = 100,
-    model_name: Optional[str] = None,
+    detection_model_name: Optional[str] = None,
     detected_only: bool = False,
     db: AsyncSession = Depends(get_db)
 ):
@@ -24,13 +24,13 @@ async def get_detections(
     
     - **skip**: Number of records to skip (pagination)
     - **limit**: Maximum number of records to return
-    - **model_name**: Filter by model name (e.g., 'seisbench_eqtransformer', 'pytorch_custom')
+    - **detection_model_name**: Filter by model name (e.g., 'seisbench_eqtransformer', 'pytorch_custom')
     - **detected_only**: If true, only return detections where detected=True
     """
     query = select(Detection).order_by(Detection.created_at.desc())
     
-    if model_name:
-        query = query.where(Detection.model_name == model_name)
+    if detection_model_name:
+        query = query.where(Detection.detection_model_name == detection_model_name)
     
     if detected_only:
         query = query.where(Detection.detected == True)
@@ -93,17 +93,17 @@ async def get_comparison_stats(
     # Count detections by model
     model_stats = {}
     for detection in detections:
-        if detection.model_name not in model_stats:
-            model_stats[detection.model_name] = {
+        if detection.detection_model_name not in model_stats:
+            model_stats[detection.detection_model_name] = {
                 "total": 0,
                 "detected": 0,
                 "not_detected": 0
             }
-        model_stats[detection.model_name]["total"] += 1
+        model_stats[detection.detection_model_name]["total"] += 1
         if detection.detected:
-            model_stats[detection.model_name]["detected"] += 1
+            model_stats[detection.detection_model_name]["detected"] += 1
         else:
-            model_stats[detection.model_name]["not_detected"] += 1
+            model_stats[detection.detection_model_name]["not_detected"] += 1
     
     return {
         "period_days": days,

@@ -2,7 +2,7 @@ import json
 import time
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis
 import seisbench.models as sbm
@@ -58,14 +58,14 @@ class SeisBenchDetector:
         try:
             message = {
                 "event_id": event_id,
-                "model_name": Config.MODEL_NAME,
-                "detection_timestamp": datetime.utcnow().isoformat() + "Z",
+                "detection_model_name": Config.MODEL_NAME,
+                "detection_timestamp": datetime.now(timezone.utc).isoformat(),
                 "detected": result["detected"],
                 "confidence": result["confidence"],
                 "threshold": Config.DETECTION_THRESHOLD,
                 "processing_time_ms": result["processing_time_ms"],
                 "picks": result["picks"],
-                "metadata": {
+                "detection_model_metadata": {
                     "model_version": f"{Config.SEISBENCH_MODEL}-{Config.SEISBENCH_MODEL_VERSION}",
                     "station": station_info
                 }
@@ -85,7 +85,7 @@ class SeisBenchDetector:
             data = json.loads(message['data'])
             
             event_id = data['event_id']
-            waveform_data = data['waveform']['data']
+            waveform_data = list(data['waveform']['data']).copy()   #waveform_data = data['waveform']['data']
             sampling_rate = data['sampling_rate']
             station_info = data['station']
             

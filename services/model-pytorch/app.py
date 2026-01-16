@@ -3,7 +3,7 @@ import json
 import time
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis
 import torch
@@ -72,14 +72,14 @@ class PyTorchDetector:
         try:
             message = {
                 "event_id": event_id,
-                "model_name": Config.MODEL_NAME,
-                "detection_timestamp": datetime.utcnow().isoformat() + "Z",
+                "detection_model_name": Config.MODEL_NAME,
+                "detection_timestamp": datetime.now(timezone.utc).isoformat(),
                 "detected": result["detected"],
                 "confidence": result["confidence"],
                 "threshold": Config.DETECTION_THRESHOLD,
                 "processing_time_ms": result["processing_time_ms"],
                 "picks": result["picks"],
-                "metadata": {
+                "detection_model_metadata": {
                     "model_version": "pytorch-custom-v1.0",
                     "station": station_info
                 }

@@ -5,13 +5,13 @@ CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 CREATE TABLE IF NOT EXISTS detections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id VARCHAR(255) NOT NULL,
-    model_name VARCHAR(100) NOT NULL,
+    detection_model_name VARCHAR(100) NOT NULL,
     detected BOOLEAN NOT NULL DEFAULT FALSE,
     confidence FLOAT NOT NULL,
     threshold FLOAT NOT NULL,
     processing_time_ms FLOAT NOT NULL,
     picks TEXT,
-    metadata TEXT,
+    detection_model_metadata TEXT,
     agreement BOOLEAN,
     confidence_diff FLOAT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -22,11 +22,11 @@ SELECT create_hypertable('detections', 'created_at', if_not_exists => TRUE);
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_detections_event_id ON detections(event_id);
-CREATE INDEX IF NOT EXISTS idx_detections_model_name ON detections(model_name);
+CREATE INDEX IF NOT EXISTS idx_detections_model_name ON detections(detection_model_name);
 CREATE INDEX IF NOT EXISTS idx_detections_created_at ON detections(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_detections_detected ON detections(detected);
 CREATE INDEX IF NOT EXISTS idx_detections_agreement ON detections(agreement);
-CREATE INDEX IF NOT EXISTS idx_detections_event_model ON detections(event_id, model_name);
+CREATE INDEX IF NOT EXISTS idx_detections_event_model ON detections(event_id, detection_model_name);
 CREATE INDEX IF NOT EXISTS idx_detections_created_detected ON detections(created_at, detected);
 
 -- Create continuous aggregate for hourly statistics
@@ -34,13 +34,13 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS detection_stats_hourly
 WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('1 hour', created_at) AS bucket,
-    model_name,
+    detection_model_name,
     COUNT(*) as total_detections,
     SUM(CASE WHEN detected THEN 1 ELSE 0 END) as positive_detections,
     AVG(confidence) as avg_confidence,
     AVG(processing_time_ms) as avg_processing_time
 FROM detections
-GROUP BY bucket, model_name
+GROUP BY bucket, detection_model_name
 WITH NO DATA;
 
 -- Refresh policy for continuous aggregate

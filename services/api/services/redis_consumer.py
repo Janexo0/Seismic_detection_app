@@ -78,16 +78,16 @@ class RedisConsumer:
                 try:
                     data = json.loads(message["data"])
                     event_id = data["event_id"]
-                    model_name = data["model_name"]
+                    detection_model_name = data["detection_model_name"]
                     
                     # Cache detection by event_id and model
                     if event_id not in self.detection_cache:
                         self.detection_cache[event_id] = {}
                     
-                    self.detection_cache[event_id][model_name] = data
+                    self.detection_cache[event_id][detection_model_name] = data
                     
                     # Check if we have results from both models
-                    if len(self.detection_cache[event_id]) == 2:
+                    if len(self.detection_cache[event_id]) == 1:
                         # We have both models' results
                         results = self.detection_cache[event_id]
                         
@@ -113,7 +113,7 @@ class RedisConsumer:
                         
                         logger.info(f"Processed complete detection for event {event_id}")
                     else:
-                        logger.debug(f"Cached partial detection for event {event_id} from {model_name}")
+                        logger.debug(f"Cached partial detection for event {event_id} from {detection_model_name}")
                     
                 except Exception as e:
                     logger.error(f"Error processing detection: {e}")
@@ -122,16 +122,16 @@ class RedisConsumer:
         """Persist detection results to database"""
         try:
             async with db_session_factory() as session:
-                for model_name, data in results.items():
+                for detection_model_name, data in results.items():
                     detection = Detection(
                         event_id=data["event_id"],
-                        model_name=model_name,
+                        detection_model_name=detection_model_name,
                         detected=data["detected"],
                         confidence=data["confidence"],
                         threshold=data["threshold"],
                         processing_time_ms=data["processing_time_ms"],
                         picks=json.dumps(data["picks"]),
-                        model_metadata=json.dumps(data["metadata"]),
+                        detection_model_metadata=json.dumps(data["detection_model_metadata"]),
                         agreement=comparison.get("agreement", False),
                         confidence_diff=comparison.get("confidence_diff", 0.0)
                     )
