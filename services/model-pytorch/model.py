@@ -1,30 +1,24 @@
 import torch
 import torch.nn as nn
 
-class CustomEarthquakeModel(nn.Module):
-    """Example custom model architecture - replace with your actual model"""
+class EventCNN(nn.Module):
+    """Pre-trained earthquake detection model"""
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv1d(1, 32, kernel_size=7, padding=3)
-        self.conv2 = nn.Conv1d(32, 64, kernel_size=5, padding=2)
-        self.pool = nn.MaxPool1d(2)
-        self.fc1 = nn.Linear(64, 128)
-        self.fc2 = nn.Linear(128, 3)  # P, S, Noise probabilities
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.3)
-        
+        self.conv = nn.Sequential(
+            nn.Conv1d(3, 32, 11, padding=5),
+            nn.ReLU(),
+            nn.MaxPool1d(4),
+            nn.Conv1d(32, 64, 7, padding=3),
+            nn.ReLU(),
+            nn.MaxPool1d(4),
+            nn.Conv1d(64, 128, 5, padding=2),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1)
+        )
+        self.fc = nn.Linear(128, 1)
+    
     def forward(self, x):
-        # x shape: (batch, 1, length)
-        x = self.relu(self.conv1(x))
-        x = self.pool(x)
-        x = self.relu(self.conv2(x))
-        x = self.pool(x)
-        
-        # Global average pooling
-        x = torch.mean(x, dim=2)
-        
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        
-        return torch.softmax(x, dim=1)
+        x = self.conv(x)
+        x = x.squeeze(-1)
+        return torch.sigmoid(self.fc(x))
