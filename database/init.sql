@@ -3,9 +3,9 @@ CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
 -- Create detections table
 CREATE TABLE IF NOT EXISTS detections (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_id VARCHAR(255) NOT NULL,
-    detection_model_name VARCHAR(100) NOT NULL,
+    id UUID DEFAULT gen_random_uuid(),
+    event_id TEXT NOT NULL,
+    detection_model_name TEXT NOT NULL,
     detected BOOLEAN NOT NULL DEFAULT FALSE,
     confidence FLOAT NOT NULL,
     threshold FLOAT NOT NULL,
@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS detections (
     detection_model_metadata TEXT,
     agreement BOOLEAN,
     confidence_diff FLOAT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
 );
 
 -- Convert to hypertable for time-series optimization
@@ -45,7 +46,7 @@ WITH NO DATA;
 
 -- Refresh policy for continuous aggregate
 SELECT add_continuous_aggregate_policy('detection_stats_hourly',
-    start_offset => INTERVAL '2 hours',
+    start_offset => INTERVAL '3 hours',
     end_offset => INTERVAL '1 hour',
     schedule_interval => INTERVAL '1 hour',
     if_not_exists => TRUE

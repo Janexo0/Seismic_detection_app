@@ -72,6 +72,7 @@ class SeisBenchDetector:
             }
             
             channel = Config.REDIS_CHANNEL_OUTPUT
+            logger.info(f"Publishing to channel: {channel}")
             self.redis_client.publish(channel, json.dumps(message))
             
             logger.info(f"Published detection for event {event_id}: detected={result['detected']}, confidence={result['confidence']:.3f}")
@@ -85,7 +86,7 @@ class SeisBenchDetector:
             data = json.loads(message['data'])
             
             event_id = data['event_id']
-            waveform_data = list(data['waveform']['data']).copy()   #waveform_data = data['waveform']['data']
+            waveform_data = data['waveform']['data']
             sampling_rate = data['sampling_rate']
             station_info = data['station']
             

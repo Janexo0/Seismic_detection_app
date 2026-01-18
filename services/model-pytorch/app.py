@@ -9,7 +9,7 @@ import redis
 import torch
 
 from config import Config
-from model import CustomEarthquakeModel
+from model import EventCNN
 from inference import InferenceEngine
 
 logging.basicConfig(level=Config.get_log_level())
@@ -44,15 +44,27 @@ class PyTorchDetector:
             
             # Check if model file exists
             if not os.path.exists(Config.MODEL_PATH):
-                logger.warning(f"Model file not found at {Config.MODEL_PATH}, creating dummy model")
-                # Create and save a dummy model for testing
-                self.model = CustomEarthquakeModel()
-                os.makedirs(os.path.dirname(Config.MODEL_PATH), exist_ok=True)
-                torch.save(self.model.state_dict(), Config.MODEL_PATH)
+                logger.warning(f"Model file not found at {Config.MODEL_PATH}")
+                logger.warning("Creating untrained model - predictions will be random!")
+                # Use untrained model (for testing structure only)
+                self.model = EventCNN()
             else:
-                # Load model
-                self.model = CustomEarthquakeModel()
-                self.model.load_state_dict(torch.load(Config.MODEL_PATH, map_location=self.device))
+                # Load the model
+                logger.info(f"Loading model from {Config.MODEL_PATH}")
+                loaded = torch.load(Config.MODEL_PATH, map_location=self.device)
+                
+                # Check if it's a full model or just state_dict
+                if isinstance(loaded, dict):
+                    # It's a state_dict (weights only)
+                    logger.info("Loading state_dict (weights only)")
+                    self.model = EventCNN()
+                    self.model.load_state_dict(loaded)
+                else:
+                    # It's a full model (architecture + weights)
+                    logger.info("Loading full model (architecture + weights)")
+                    self.model = loaded
+                
+                logger.info("Model weights loaded successfully")
             
             self.model.to(self.device)
             self.model.eval()
@@ -60,11 +72,11 @@ class PyTorchDetector:
             # Initialize inference engine
             self.inference_engine = InferenceEngine(self.model, self.device)
             
-            logger.info(f"Model loaded successfully on {self.device}")
+            logger.info(f"Model ready on {self.device}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+            logger.error(f"Failed to load model: {e}", exc_info=True)
             return False
     
     def publish_detection(self, event_id, result, station_info):
@@ -86,6 +98,7 @@ class PyTorchDetector:
             }
             
             channel = Config.REDIS_CHANNEL_OUTPUT
+            logger.info(f"Publishing to channel: {channel}")
             self.redis_client.publish(channel, json.dumps(message))
             
             logger.info(f"Published detection for event {event_id}: detected={result['detected']}, confidence={result['confidence']:.3f}")

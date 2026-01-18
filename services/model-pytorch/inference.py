@@ -24,11 +24,15 @@ class InferenceEngine:
             # Normalize
             data = (data - np.mean(data)) / (np.std(data) + 1e-8)
             
-            # Reshape for model input: (batch, channels, length)
-            data = data.reshape(1, 1, -1)
+            # Model expects 3 channels - simulate from single channel
+            # In production, you might have actual 3-component data
+            data_3c = np.stack([data, data, data], axis=0)
+            
+            # Add batch dimension: (batch, channels, length)
+            data_3c = np.expand_dims(data_3c, axis=0)
             
             # Convert to tensor
-            tensor = torch.from_numpy(data).to(self.device)
+            tensor = torch.from_numpy(data_3c).to(self.device)
             
             return tensor
             
@@ -46,41 +50,30 @@ class InferenceEngine:
             if input_tensor is None:
                 return None
             
-            # Run model
+            # Run model - returns probability [0, 1]
             with torch.no_grad():
                 output = self.model(input_tensor)
             
-            # Extract probabilities
-            probs = output.cpu().numpy()[0]
-            p_prob = float(probs[0])
-            s_prob = float(probs[1])
-            noise_prob = float(probs[2])
+            # Extract probability (binary classification)
+            probability = float(output.cpu().numpy()[0, 0])
             
-            # Create picks
+            # Detection based on threshold
+            detected = probability > self.threshold
+            
+            # Create picks (empty for binary model, but kept for consistency)
             picks = []
-            if p_prob > self.threshold:
+            if detected:
                 picks.append({
-                    "phase": "P",
+                    "phase": "Event",
                     "time": None,
-                    "probability": p_prob
+                    "probability": probability
                 })
-            
-            if s_prob > self.threshold:
-                picks.append({
-                    "phase": "S",
-                    "time": None,
-                    "probability": s_prob
-                })
-            
-            # Detection based on max probability
-            max_signal_prob = max(p_prob, s_prob)
-            detected = max_signal_prob > self.threshold
             
             processing_time = (time.time() - start_time) * 1000
             
             return {
                 "detected": detected,
-                "confidence": max_signal_prob,
+                "confidence": probability,
                 "picks": picks,
                 "processing_time_ms": processing_time
             }

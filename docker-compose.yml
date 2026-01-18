@@ -18,7 +18,7 @@ services:
 
   # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:latest-pg15
     container_name: earthquake-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-seismic}

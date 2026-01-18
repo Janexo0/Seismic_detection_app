@@ -41,6 +41,7 @@ class RedisConsumer:
                 break
                 
             if message["type"] == "message":
+                logger.info(f"Received message on channel: {message.get('channel')}")
                 try:
                     data = json.loads(message["data"])
                     
@@ -79,15 +80,20 @@ class RedisConsumer:
                     data = json.loads(message["data"])
                     event_id = data["event_id"]
                     detection_model_name = data["detection_model_name"]
+
+                    logger.info(f"Processing detection: event={event_id}, model={detection_model_name}")
                     
                     # Cache detection by event_id and model
                     if event_id not in self.detection_cache:
                         self.detection_cache[event_id] = {}
                     
                     self.detection_cache[event_id][detection_model_name] = data
+
+                    logger.info(f"Cached detection for {event_id}: {list(self.detection_cache[event_id].keys())}")
                     
                     # Check if we have results from both models
-                    if len(self.detection_cache[event_id]) == 1:
+                    if len(self.detection_cache[event_id]) >= 2:
+                        logger.info(f"Both models responded for {event_id}, processing comparison")
                         # We have both models' results
                         results = self.detection_cache[event_id]
                         

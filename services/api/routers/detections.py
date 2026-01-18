@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from database import get_db
 from models import Detection
@@ -74,7 +74,7 @@ async def get_comparison_stats(
     
     Returns agreement rate, total events, and breakdown of results
     """
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     
     result = await db.execute(
         select(Detection).where(Detection.created_at >= since)
@@ -124,7 +124,7 @@ async def get_recent_stats(
     
     - **hours**: Number of hours to look back (default: 24)
     """
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
     
     result = await db.execute(
         select(Detection).where(Detection.created_at >= since)

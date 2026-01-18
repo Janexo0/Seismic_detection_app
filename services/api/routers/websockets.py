@@ -3,7 +3,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
-# This will be initialized in main.py
 websocket_manager = None
 
 def init_websocket_router(manager):
