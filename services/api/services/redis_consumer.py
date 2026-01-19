@@ -11,7 +11,7 @@ from services.comparison import compare_detections
 logger = logging.getLogger(__name__)
 
 class RedisConsumer:
-    """Consumes messages from Redis pub/sub and processes them"""
+    """Consumes messages from Redis pub/sub and processes them using a single listener loop"""
     
     def __init__(self, redis_url: str, websocket_manager):
         self.redis_url = redis_url
@@ -30,100 +30,96 @@ class RedisConsumer:
         )
         self.pubsub = self.redis.pubsub()
         logger.info(f"Connected to Redis at {self.redis_url}")
+
+    async def start(self, db_session_factory):
+        """Start consuming from Redis with a unified dispatcher loop"""
+        await self.connect()
+        self.running = True
         
-    async def subscribe_waveforms(self):
-        """Subscribe to seismic waveform data and broadcast to WebSocket clients"""
-        await self.pubsub.subscribe(Config.REDIS_CHANNEL_WAVEFORMS)
-        logger.info(f"Subscribed to {Config.REDIS_CHANNEL_WAVEFORMS}")
-        
-        async for message in self.pubsub.listen():
-            if not self.running:
-                break
-                
-            if message["type"] == "message":
-                logger.info(f"Received message on channel: {message.get('channel')}")
-                try:
-                    data = json.loads(message["data"])
-                    
-                    # Transform for WebSocket
-                    ws_message = {
-                        "type": "waveform",
-                        "event_id": data["event_id"],
-                        "timestamp": data["timestamp"],
-                        "station": data["station"],
-                        "data": data["waveform"]["data"][:1000],  # Limit data size
-                        "sampling_rate": data["sampling_rate"]
-                    }
-                    
-                    await self.websocket_manager.broadcast(ws_message, "waveforms")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing waveform: {e}")
-    
-    async def subscribe_detections(self, db_session_factory):
-        """Subscribe to detection results from both models and process them"""
-        # Subscribe to both model channels
+        # Subskrybujemy wszystkie kanały na jednym obiekcie pubsub
         channels = [
+            Config.REDIS_CHANNEL_WAVEFORMS,
             Config.REDIS_CHANNEL_DETECTIONS_SEISBENCH,
             Config.REDIS_CHANNEL_DETECTIONS_PYTORCH
         ]
-        
         await self.pubsub.subscribe(*channels)
-        logger.info(f"Subscribed to detection channels: {channels}")
-        
-        async for message in self.pubsub.listen():
-            if not self.running:
-                break
+        logger.info(f"Subscribed to all channels: {channels}")
+
+        try:
+            # JEDYNA pętla nasłuchująca w całej aplikacji API
+            async for message in self.pubsub.listen():
+                if not self.running:
+                    break
                 
-            if message["type"] == "message":
-                try:
-                    data = json.loads(message["data"])
-                    event_id = data["event_id"]
-                    detection_model_name = data["detection_model_name"]
-
-                    logger.info(f"Processing detection: event={event_id}, model={detection_model_name}")
+                if message["type"] == "message":
+                    channel = message["channel"]
+                    raw_data = message["data"]
                     
-                    # Cache detection by event_id and model
-                    if event_id not in self.detection_cache:
-                        self.detection_cache[event_id] = {}
-                    
-                    self.detection_cache[event_id][detection_model_name] = data
-
-                    logger.info(f"Cached detection for {event_id}: {list(self.detection_cache[event_id].keys())}")
-                    
-                    # Check if we have results from both models
-                    if len(self.detection_cache[event_id]) >= 2:
-                        logger.info(f"Both models responded for {event_id}, processing comparison")
-                        # We have both models' results
-                        results = self.detection_cache[event_id]
-                        
-                        # Create comparison
-                        comparison = compare_detections(results)
-                        
-                        # Persist to database
-                        await self.persist_detections(results, comparison, db_session_factory)
-                        
-                        # Broadcast to WebSocket
-                        ws_message = {
-                            "type": "detection",
-                            "event_id": event_id,
-                            "timestamp": data["detection_timestamp"],
-                            "models": results,
-                            "comparison": comparison
-                        }
-                        
-                        await self.websocket_manager.broadcast(ws_message, "detections")
-                        
-                        # Clean up cache
-                        del self.detection_cache[event_id]
-                        
-                        logger.info(f"Processed complete detection for event {event_id}")
+                    # DISPATCHER: Kierowanie wiadomości do odpowiedniej funkcji
+                    if channel == Config.REDIS_CHANNEL_WAVEFORMS:
+                        await self._handle_waveform(raw_data)
                     else:
-                        logger.debug(f"Cached partial detection for event {event_id} from {detection_model_name}")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing detection: {e}")
-    
+                        await self._handle_detection(raw_data, db_session_factory)
+                        
+        except Exception as e:
+            logger.error(f"Critical error in Redis listener loop: {e}")
+        finally:
+            await self.stop()
+
+    async def _handle_waveform(self, raw_data):
+        """Process and broadcast waveform data"""
+        try:
+            data = json.loads(raw_data)
+            ws_message = {
+                "type": "waveform",
+                "event_id": data["event_id"],
+                "timestamp": data["timestamp"],
+                "station": data["station"],
+                "data": data["waveform"]["data"][:1000],  # Limit dla wydajności frontendu
+                "sampling_rate": data["sampling_rate"]
+            }
+            await self.websocket_manager.broadcast(ws_message, "waveforms")
+        except Exception as e:
+            logger.error(f"Error processing waveform data: {e}")
+
+    async def _handle_detection(self, raw_data, db_session_factory):
+        """Process, compare, and broadcast detection results"""
+        try:
+            data = json.loads(raw_data)
+            event_id = data["event_id"]
+            model_name = data["detection_model_name"]
+
+            # Cache'owanie wyników
+            if event_id not in self.detection_cache:
+                self.detection_cache[event_id] = {}
+            
+            self.detection_cache[event_id][model_name] = data
+
+            # Jeśli mamy komplet (2 modele), przetwarzamy porównanie
+            if len(self.detection_cache[event_id]) >= 2:
+                results = self.detection_cache[event_id]
+                comparison = compare_detections(results)
+                
+                # Zapis do bazy (asynchronicznie)
+                await self.persist_detections(results, comparison, db_session_factory)
+                
+                # Wysyłka do frontendu
+                ws_message = {
+                    "type": "detection",
+                    "event_id": event_id,
+                    "timestamp": data["detection_timestamp"],
+                    "models": results,
+                    "comparison": comparison
+                }
+                await self.websocket_manager.broadcast(ws_message, "detections")
+                
+                # Czyszczenie pamięci podręcznej
+                del self.detection_cache[event_id]
+                logger.info(f"Broadcasted complete detection for event {event_id}")
+                
+        except Exception as e:
+            logger.error(f"Error processing detection result: {e}")
+
     async def persist_detections(self, results: Dict, comparison: Dict, db_session_factory):
         """Persist detection results to database"""
         try:
@@ -144,35 +140,15 @@ class RedisConsumer:
                     session.add(detection)
                 
                 await session.commit()
-                logger.debug(f"Persisted detections for event {data['event_id']}")
-                
         except Exception as e:
-            logger.error(f"Error persisting to database: {e}")
-    
-    async def start(self, db_session_factory):
-        """Start consuming from Redis"""
-        await self.connect()
-        self.running = True
-        
-        logger.info("Starting Redis consumer tasks...")
-        
-        # Run both subscriptions concurrently
-        await asyncio.gather(
-            self.subscribe_waveforms(),
-            self.subscribe_detections(db_session_factory),
-            return_exceptions=True
-        )
-    
+            logger.error(f"Database persistence error: {e}")
+
     async def stop(self):
-        """Stop consuming"""
-        logger.info("Stopping Redis consumer...")
+        """Graceful shutdown"""
         self.running = False
-        
         if self.pubsub:
             await self.pubsub.unsubscribe()
             await self.pubsub.close()
-        
         if self.redis:
             await self.redis.close()
-        
         logger.info("Redis consumer stopped")

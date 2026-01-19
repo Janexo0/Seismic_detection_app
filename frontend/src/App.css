@@ -50,8 +50,8 @@
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
   padding: 2rem;
-  max-width: 1800px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
 }
 
 .section {
@@ -70,6 +70,8 @@
 
 .waveform-section {
   grid-column: 1 / -1;
+  width: 100%; 
+  box-sizing: border-box;
 }
 
 .waveform-container {
